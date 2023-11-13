@@ -23,4 +23,4 @@ for block in data[1:]:  # Skip the first block as it's likely to be empty
 df = pd.DataFrame(data_list)
 
 # Write the DataFrame to a JSON file
-df.to_json('data.json', orient='records')
+df.to_csv('data_new.csv')
