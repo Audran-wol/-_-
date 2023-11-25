@@ -1,27 +1,44 @@
 #Install the required python libraries
 import csv
-import re
+
 
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
 from webdriver_manager.chrome import ChromeDriverManager
 
+
+# Function to scrapedetails from the company page
+def scrape_company_details(driver):
+    # Wait for the details section to be present
+    wait.until(EC.presence_of_element_located((By.ID, 'rrbPanel_content')))
+
+    details_section = driver.find_element_by_id('rrbPanel_content')
+    soup = BeautifulSoup(details_section.get_attribute('innerHTML'), 'html.parser')
+
+    # Extracting date from the details dsection
+    date = soup.find('label', {'id': 'j_idt111'}).text.strip()
+    court_info = soup.find('label', {'id': 'j_idt114'}).text.strip()
+    company_name = soup.find('label', {'id': 'j_idt121'}).text.strip()
+    company_type = soup.find('label', {'id': 'j_idt123'}).text.strip()
+    location = soup.find('label', {'id': 'j_idt125'}).text.strip()
+
+    return date, court_info, company_name, company_type, location
+
 driver = webdriver.Chrome(ChromeDriverManager().install())
 
-# Add browser-executable path
-# s = Service(r"C:\Users\Tiedang\Desktop\Development\chromedriver_win32\chromedriver.exe")
-#
-# driver = webdriver.Chrome(service=s)
 url = "https://www.handelsregister.de/rp_web/welcome.xhtml"
 driver.get(url)
 
-time.sleep(10)
+time.sleep(15)
 
 #Create some sleep variables
 wait = WebDriverWait(driver, 10)
-wait5 = WebDriverWait(driver, 5)
+wait30 = WebDriverWait(driver, 30)
 
 #Locate the Register anouncements section and click
 register_announcement = driver.find_element_by_xpath('//*[@id="naviForm:rpNavMainMenuID"]/ul/li[4]')
@@ -41,60 +58,54 @@ time.sleep(5)
 filter_button = driver.find_element_by_xpath('//*[@id="formId:rrbSuche"]/span')
 filter_button.click()
 
-time.sleep(6)
 
-#Parse the result with BeautifulSoup
-soup = BeautifulSoup(driver.page_source, 'html.parser')
+#Create a csv file to store the data
+csv_file = open('company_data.csv', 'w', newline='', encoding='utf-8')
+csv_writer = csv.writer(csv_file)
+csv_writer.writerow(['Date', 'Court Info', 'Company Name', 'Company Type', 'Location'])
 
-# Extract the required data
-# find div  containing the data
-data_div = soup.find('div', {'id': 'formId:datalistId_content', 'class': 'ui-datalise-content'})
+#Extract data from each company in the list
+company_list = driver.find_elements_by_xpath('//a[@class="ui-commandlink ui-widget"]')
+company_count = len(company_list)
 
-# Find the dl within the div
-data_list = soup.find('dl', {'id': 'formId:datalistId_list'})
+for index in range(company_count):
+    # Click on the company link to go to eh details page
+    company_list = driver.find_elements_by_xpath('//a[@class="ui-commandlink ui-widget"]')
+    company = company_list[index]
 
-# Find all dt elements within the dl
-items = data_list.find_all('dt', {'class': 'ui-datalist-item'})
+    # Use JavaScript to click on the company link
+    driver.execute_script("arguments[0].click();", company)
 
-data = []
+    # Wait for the overlay to disappear
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.invisibility_of_element_located((By.ID, 'j_idt168_modal'))
+        )
+    except Exception as e:
+        print(f"Overlay not found or not disappearing: {e}")
 
-#Iterate over each item
-for i, item in enumerate(items):
-    # Construct the id for data span and the anchor tag
-    date_id = f"formId:datalistId:{i}:datatumId"
-    anchor_id = f"formId:datalistId:{i}:j_idt132:0:j_idt133"
+    # Scrape details from the details page
+    date, court_info, company_name, company_type, location = scrape_company_details(driver)
 
-    # Find the date span and the anchor tag
-    date_span = item.find('span', {'id': re.compile(date_id)})
-    anchor_tag = item.find('a', {'id': re.compile(anchor_id)})
+    # Write data to CSV
+    csv_writer.writerow([date, court_info, company_name, company_type, location])
 
-    # Extract the date and the information
-    date = date_span.text.strip()
-    info = anchor_tag.text.strip()
+    # Go back to the list of companies
+    driver.back()
 
-    #Split the info to extract the company name and registration date
-    info_parts = info.split('<br>')
-    company_name = info_parts[1].strip()
-    company_registration_date = info_parts[0].strip()
+    # Wait for the list of companies to be present again
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_all_elements_located((By.XPATH, '//a[@class="ui-commandlink ui-widget"]'))
+    )
+    time.sleep(2)  # Add a short sleep to allow the page to stabilize
 
-    # Append the data to the list
-    data.append({
-        'date': date,
-        'company_name': company_name,
-        'company_registration_date': company_registration_date
-    })
+# Close the csv file
+csv_file.close()
 
-# Write the data to csv file in JSON format
-with open('data.csv', 'w', newline='') as csvfile:
-    fieldnames = ['date', 'company_name', 'company_registration_date']
-    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
-    writer.writeheader()
-    for row in data:
-        writer.writerow(row)
+#Close the webdiver
+driver.quit()
 
 
-print("Data saved to data.csv")
 
 
 
