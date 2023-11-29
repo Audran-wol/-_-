@@ -1,9 +1,10 @@
 import csv
 import time
+from selenium.common.exceptions import NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+import os
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -15,8 +16,11 @@ with open(csv_file_path, mode='r', encoding='utf-8') as file:
     csv_reader = csv.reader(file)
     header = next(csv_reader)  # Skip the header
     for row in csv_reader:
-        date, court_info, company_name, company_type, location = row
-        companies.append({"name": company_name, "location": location})
+        if len(row) == 5:
+            date, court_info, company_name, company_type, location = row
+            companies.append({"name": company_name, "location": location})
+        else:
+            print(f"Skipping invalid row: {row}")
 
 # Step 2: Navigate to Gelbe Seiten and Search for Companies
 driver = webdriver.Chrome(ChromeDriverManager().install())
@@ -75,40 +79,68 @@ for company in companies:
 
     # Extract information only if the elements are present
     try:
-
         # Email
         email_link = driver.find_element(By.ID, 'email_versenden')
-        email = email_link.get_attribute('data-link').split(":")[1].split("?")[0]
+        email = email_link.get_attribute('data-link') if email_link else None
 
+        if email is not None:
+            email_parts = email.split(":")
+            if len(email_parts) > 1:
+                email = email_parts[1].split("?")[0]
+            else:
+                email = None
+    except NoSuchElementException:
+        email = None
+
+    # Proceed to copy the website link even if email is None
+    try:
         # Website
         website_link = driver.find_element(By.CSS_SELECTOR,
                                            'a[data-wipe-realview="detailseite_aktionsleiste_webadresse"]')
         website = website_link.get_attribute('href')
-    except Exception as e:
-        print(f"Failed to extract information for {company['name']} in {company['location']}. Error: {e}")
-        continue
+    except NoSuchElementException:
+        website = None
 
     # Save the information to a new Csv file
     output_csv_file = "company_details.csv"
-    with open(output_csv_file, mode='a', encoding='utf-8', newline='') as csvfile:
-        fieldnames = ['company_name', 'location', 'website', 'email']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-        # Check if the csv file is empty, if so, write the header
-        if csvfile.tell() == 0:
+    # Check if the CSV file already exists
+    if os.path.exists(output_csv_file):
+        # Open the existing file in append mode
+        with open(output_csv_file, mode='a', encoding='utf-8', newline='') as csvfile:
+            fieldnames = ['company_name', 'location', 'website', 'email']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+            # Check if the csv file is empty, if so, write the header
+            if csvfile.tell() == 0:
+                writer.writeheader()
+
+            # Write the company details to the csv file
+            writer.writerow({
+                'company_name': company['name'],
+                'location': company["location"],
+                'website': website if website else "No website",
+                'email': email if email else "No email"
+            })
+    else:
+        # Create a new file and write the header and company details
+        with open(output_csv_file, mode='w', encoding='utf-8', newline='') as csvfile:
+            fieldnames = ['company_name', 'location', 'website', 'email']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+            # Write the header
             writer.writeheader()
 
-        # Write the company details to the csv file
-        writer.writerow({
-            'company_name': company['name'],
-            'location': company["location"],
-            'website': website,
-            'email': email
-        })
+            # Write the company details to the csv file
+            writer.writerow({
+                'company_name': company['name'],
+                'location': company["location"],
+                'website': website if website else "No website",
+                'email': email if email else "No email"
+            })
 
-    # Go back to the search resukts page for the next iteration
+    # Go back to the search results page for the next iteration
     driver.back()
-
 
 # Close the browser window
 driver.quit()
