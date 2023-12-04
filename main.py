@@ -1,110 +1,98 @@
 #Install the required python libraries
 import csv
 
+from selenium.common.exceptions import  NoSuchElementException
 
-from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from bs4 import BeautifulSoup
+
+from selenium.webdriver.support.ui import Select
+from selenium import webdriver
 import time
 from webdriver_manager.chrome import ChromeDriverManager
 
-
-# Function to scrapedetails from the company page
-def scrape_company_details(driver):
-    # Wait for the details section to be present
-    wait.until(EC.presence_of_element_located((By.ID, 'rrbPanel_content')))
-
-    details_section = driver.find_element_by_id('rrbPanel_content')
-    soup = BeautifulSoup(details_section.get_attribute('innerHTML'), 'html.parser')
-
-    # Extracting date from the details dsection
-    date = soup.find('label', {'id': 'j_idt111'}).text.strip()
-    court_info = soup.find('label', {'id': 'j_idt114'}).text.strip()
-    company_name = soup.find('label', {'id': 'j_idt121'}).text.strip()
-    company_type = soup.find('label', {'id': 'j_idt123'}).text.strip()
-    location = soup.find('label', {'id': 'j_idt125'}).text.strip()
-
-    return date, court_info, company_name, company_type, location
-
 driver = webdriver.Chrome(ChromeDriverManager().install())
 
-url = "https://www.handelsregister.de/rp_web/welcome.xhtml"
-driver.get(url)
 
+url = "https://www.unternehmensregister.de/ureg/search1.3.html;jsessionid=EADD84A092E46554E8E2217098252036.web01-1?submitaction=language&language=en"
+driver.get(url)
+time.sleep(10)
+
+#Select the button menu
+menu = driver.find_element_by_class_name("menu__toggle")
+menu.click()
+
+# Find and click the menu item "Register disclosures"
+register_disclosures_option = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.XPATH, "//ul[@id='item1']//li/a[text()='Register disclosures']"))
+)
+register_disclosures_option.click()
+time.sleep(6)
+
+
+# Select the registration form
+select = Select(driver.find_element_by_id("searchRegisterForm:publicationsPublicationType"))
+select.select_by_visible_text("Submission of new documents")
+
+# Enter the form date
+from_date = driver.find_element_by_id("searchRegisterForm:publicationsStartDate")
+from_date.clear()
+from_date.send_keys("01/01/2023")
+time.sleep(5)
+
+# Enter the unitl date
+until_date = driver.find_element_by_id("searchRegisterForm:publicationsEndDate")
+until_date.clear()
+until_date.send_keys("12/02/2023")
+
+#Click on the search Button
+search_button = driver.find_element_by_name("searchRegisterForm:j_idt257")
+search_button.click()
 time.sleep(15)
 
-#Create some sleep variables
-wait = WebDriverWait(driver, 10)
-wait30 = WebDriverWait(driver, 30)
-
-#Locate the Register anouncements section and click
-register_announcement = driver.find_element_by_xpath('//*[@id="naviForm:rpNavMainMenuID"]/ul/li[4]')
-register_announcement.click()
-
-time.sleep(5)
-
-#Locate the kategorie field and select "Submission of New documents"
-kategorie = driver.find_element_by_id('formId:kategorie_label')
-kategorie.click()
-#Select selection of new documents
-submission_of_new_documents = driver.find_element_by_xpath('//*[@id="formId:kategorie_3"]')
-submission_of_new_documents.click()
-time.sleep(5)
-
-#Filter the form of selected arguments
-filter_button = driver.find_element_by_xpath('//*[@id="formId:rrbSuche"]/span')
-filter_button.click()
-
+#Increase the number of publications per page to 100
+hits_per_page_select = Select(driver.find_element_by_id("hppForm:hitsperpage"))
+hits_per_page_select.select_by_visible_text("100")
+time.sleep(10)
 
 #Create a csv file to store the data
-csv_file = open('company_data.csv', 'w', newline='', encoding='utf-8')
-csv_writer = csv.writer(csv_file)
-csv_writer.writerow(['Date', 'Court Info', 'Company Name', 'Company Type', 'Location'])
+with open("company_data.csv", "w", encoding="utf-8", newline="") as file:
+    writer = csv.writer(file)
+    writer.writerow(["Company Name", "Location", "Date"])
 
-#Extract data from each company in the list
-company_list = driver.find_elements_by_xpath('//a[@class="ui-commandlink ui-widget"]')
-company_count = len(company_list)
+# Loop through the pages
+    while True:
+        company_results = driver.find_elements_by_class_name("company_result")
 
-for index in range(company_count):
-    # Click on the company link to go to eh details page
-    company_list = driver.find_elements_by_xpath('//a[@class="ui-commandlink ui-widget"]')
-    company = company_list[index]
+        #Loop through the company results
+        for company_result in company_results:
+            try:
+                company_name = company_result.find_element_by_tag_name("span").text
+                p_element = company_result.find_element_by_tag_name("p")
+                p_text = p_element.text.split("\n")
+                location = p_element.text.split("\n")[0]
+                date = p_text[-1]
+                date = date.replace("Last update: ", "").strip()
 
-    # Use JavaScript to click on the company link
-    driver.execute_script("arguments[0].click();", company)
+                #Write the data to the csv file
+                writer.writerow([company_name, location, date])
+            except NoSuchElementException as e:
+                print(f"Error: {e}. Some elemenst not found in the the current 'company_result' div")
 
-    # Wait for the overlay to disappear
-    try:
-        WebDriverWait(driver, 10).until(
-            EC.invisibility_of_element_located((By.ID, 'j_idt168_modal'))
-        )
-    except Exception as e:
-        print(f"Overlay not found or not disappearing: {e}")
+        try:
+            # Wait for the next page button to become visible and clickable
+            WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CLASS_NAME, "next")))
+            next_page = driver.find_element_by_class_name("next")
+        except NoSuchElementException:
+            # Break out of the loop if the next page button is not found
+            break
+        else:
+            next_page.click()
+            time.sleep(10)
 
-    # Scrape details from the details page
-    date, court_info, company_name, company_type, location = scrape_company_details(driver)
-
-    # Write data to CSV
-    csv_writer.writerow([date, court_info, company_name, company_type, location])
-
-    # Go back to the list of companies
-    driver.back()
-
-    # Wait for the list of companies to be present again
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_all_elements_located((By.XPATH, '//a[@class="ui-commandlink ui-widget"]'))
-    )
-    time.sleep(2)  # Add a short sleep to allow the page to stabilize
-
-# Close the csv file
-csv_file.close()
-
-#Close the webdiver
 driver.quit()
-
 
 
 
